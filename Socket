@@ -2,86 +2,91 @@ import socket
 import urllib.request
 from urllib.error import HTTPError, URLError
 
-# 1-(Server Configuration)
-HOST = '127.0.0.1' 
-PORT = 8080        # نستخدم منفذ أكبر من 1023 كما هو مفضل في الشبكات
+# 1- Server configuration
+HOST = '127.0.0.1'
+PORT = 8080  # use a port number greater than 1023
 
-# 2-(Firewall Blocklist)
-# any website that has this words will be blocked 
+# 2- Firewall block list
+# any website that contains these words will be blocked
 BLOCKED_DOMAINS = ["blocked.com", "example.com"]
+
 
 def handle_client(client_socket):
     try:
-        # --- أ) استقبال الطلب من العميل ---
+        # Receive request from client
         request_data = client_socket.recv(4096).decode('utf-8')
         if not request_data:
             return
-            
-        # استخراج الرابط (URL) وطريقة الطلب (Method) من السطر الأول
-        first_line = request_data.split('\n')
+
+        # Get method, URL, and version from first line
+        first_line = request_data.split('\n')[0]
         method, url, version = first_line.split()
-        
-        # الخادم يعالج طلبات HTTP GET فقط
+
+        # Only allow GET requests
         if method != "GET":
             return
 
         print(f"[*] Received GET request for: {url}")
 
-        # استخراج النطاق (Domain) لفحصه
-        domain = url.replace("http://", "").replace("https://", "").split('/')
+        # Extract domain from URL
+        domain = url.replace("http://", "").replace("https://", "").split('/')[0]
 
-        # --- (Firewall Functionality) ---
+        # --- Firewall check ---
         for blocked in BLOCKED_DOMAINS:
             if blocked in domain:
                 print(f"[-] Firewall Blocked: {domain}")
-                # 403 Forbidden
+
+                # Send 403 Forbidden response
                 forbidden_response = "HTTP/1.1 403 Forbidden\r\n\r\n<h1>403 Forbidden - Blocked by Firewall</h1>"
                 client_socket.sendall(forbidden_response.encode('utf-8'))
                 return
 
-        # --- ج) جلب البيانات من الخادم الخارجي ---
-        # (ملاحظة للطالبة الثانية: هنا بالضبط ستقومين بإضافة كود التخزين المؤقت Caching)
+        #  Fetch data from external server
         print(f"[*] Fetching from external server: {url}")
-        
+
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         response = urllib.request.urlopen(req)
         web_data = response.read()
 
-        # إنشاء استجابة HTTP وإرسالها للعميل
-        http_response = f"HTTP/1.1 200 OK\r\nContent-Length: {len(web_data)}\r\n\r\n".encode('utf-8') + web_data
+        # Send response back to client
+        http_response = (
+            f"HTTP/1.1 200 OK\r\nContent-Length: {len(web_data)}\r\n\r\n".encode('utf-8')
+            + web_data
+        )
         client_socket.sendall(http_response)
 
-    # -- (Exception Handling) --
-    # it guarantees that the server work even if the link was wrong or any other happend
-
+    # Handle errors
     except Exception as e:
         print(f"[!] Exception Error occurred: {e}")
         error_response = "HTTP/1.1 500 Internal Server Error\r\n\r\n<h1>Internal Server Error - Invalid Request</h1>"
         client_socket.sendall(error_response.encode('utf-8'))
+
     finally:
-        # إغلاق الاتصال مع العميل الحالي لانتظار عميل آخر
+        # Close connection
         client_socket.close()
 
+
 def start_proxy():
-    # إنشاء مقبس الخادم من نوع TCP
+    # Create TCP server socket
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
-    # ربط الخادم بالمنفذ وبدء الاستماع للطلبات
+
+    # Bind and listen
     server_socket.bind((HOST, PORT))
     server_socket.listen(5)
-    print(f"[*] Proxy Server is running and listening on {HOST}:{PORT}")
-    
+    print(f"[*] Proxy Server is running on {HOST}:{PORT}")
+
     while True:
         try:
-            # قبول اتصالات العملاء
+            # Accept client connection
             client_socket, client_address = server_socket.accept()
             handle_client(client_socket)
         except KeyboardInterrupt:
-            print("\n[*] Shutting down proxy.")
+            print("\n[*] Server stopped.")
             break
-            
+
     server_socket.close()
+
 
 if __name__ == "__main__":
     start_proxy()
