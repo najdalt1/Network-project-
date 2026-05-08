@@ -1,0 +1,108 @@
+import socket
+
+# Server configuration
+HOST = '127.0.0.1'
+PORT = 8080  # Port must be >= 1024 for user-level processes
+
+# Firewall block list
+BLOCKED_DOMAINS = ["blocked.com", "example.com"]
+
+
+def handle_client(client_socket):
+    try:
+        # Receive raw request from client
+        request_data = client_socket.recv(4096)
+        if not request_data:
+            return
+
+        # Read first line to extract method, URL, and version
+        request_text = request_data.decode('utf-8', errors='ignore')
+        first_line = request_text.split('\n')[0]
+
+        parts = first_line.split()
+        if len(parts) < 3:
+            return
+
+        method, url, version = parts[0], parts[1], parts[2]
+
+        # Only GET requests are allowed
+        if method != "GET":
+            return
+
+        print(f"[*] Received GET request for: {url}")
+
+        # Extract host and port from URL
+        url_without_http = url.replace("http://", "").replace("https://", "")
+        slash_pos = url_without_http.find('/')
+        host_and_port = url_without_http if slash_pos == -1 else url_without_http[:slash_pos]
+
+        # Default port is 80 unless specified in URL
+        port = 80
+        webserver = host_and_port
+        colon_pos = host_and_port.find(':')
+        if colon_pos != -1:
+            webserver = host_and_port[:colon_pos]
+            port = int(host_and_port[colon_pos + 1:])
+
+        # Firewall check - block domains in the block list
+        for blocked in BLOCKED_DOMAINS:
+            if blocked in webserver:
+                print(f"[-] Firewall Blocked: {webserver}")
+                forbidden_response = "HTTP/1.1 403 Forbidden\r\n\r\n<h1>403 Forbidden - Blocked by Firewall</h1>"
+                client_socket.sendall(forbidden_response.encode('utf-8'))
+                return
+
+        print(f"[*] Forwarding to: {webserver}:{port}")
+
+        # Connect to external server using a new socket
+        external_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        external_socket.connect((webserver, port))
+
+        # Forward original request to external server
+        external_socket.sendall(request_data)
+
+        # Receive response and send it back to client
+        while True:
+            response_data = external_socket.recv(4096)
+            if len(response_data) > 0:
+                client_socket.sendall(response_data)
+            else:
+                break
+
+        external_socket.close()
+
+    except Exception as e:
+        # Handle unexpected errors
+        print(f"[!] Error: {e}")
+        error_response = "HTTP/1.1 500 Internal Server Error\r\n\r\n<h1>Internal Server Error</h1>"
+        client_socket.sendall(error_response.encode('utf-8'))
+
+    finally:
+        # Always close client socket
+        client_socket.close()
+
+
+def start_proxy():
+    # Create and configure TCP server socket
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # Start listening for connections
+    server_socket.bind((HOST, PORT))
+    server_socket.listen(5)
+    print(f"[*] Proxy Server running on {HOST}:{PORT}")
+
+    while True:
+        try:
+            # Accept and handle incoming client connection
+            client_socket, client_address = server_socket.accept()
+            handle_client(client_socket)
+        except KeyboardInterrupt:
+            print("\n[*] Server stopped.")
+            break
+
+    server_socket.close()
+
+
+if __name__ == "__main__":
+    start_proxy()
