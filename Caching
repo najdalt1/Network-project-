@@ -1,0 +1,24 @@
+
+
+
+class Caching:
+    def __init__(self):
+        self.cache = {}  # url -> (response_bytes, headers_dict)
+
+    def get(self, url):
+        if url in self.cache:
+            print(f"[CACHE HIT] {url}")
+            return self.cache[url][0]  # response bytes
+        else:
+            print(f"[CACHE MISS] {url}")
+            return None
+
+    def set(self, url, response, headers):
+        cache_control = headers.get("Cache-Control", "")
+
+        if "no-store" in cache_control:
+            print(f"[LOG] Not cached (no-store): {url}")
+            return
+
+        self.cache[url] = (response, headers)
+        print(f"[LOG] Cached: {url}")
